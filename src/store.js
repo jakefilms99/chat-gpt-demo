@@ -12,7 +12,7 @@ const initialState = {
           role: "system",
           content:
             "Act as a startup analyzer trying to help startup founders with their ideas,\n \
-            by providing a report on the market, trends, features to add, etc, based on the idea they provide you with.\n \
+            by providing a report on the problem, market/trends and users, and features to add, etc, based on the idea they provide you with.\n \
             To help the founder, you can ask questions, give advice, or make suggestions.",
         },
         {
