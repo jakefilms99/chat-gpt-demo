@@ -4,6 +4,8 @@ import { addMessage } from "../store";
 import { ReactComponent as SendIcon } from "../images/icon-send.svg";
 
 const Chat = ({ selectedContact }) => {
+  const [assistantPartialMessage, setAssistantPartialMessage] = useState("");
+
   const dispatch = useDispatch();
   const messages = useSelector(
     (state) => state.contacts.find((c) => c.id === selectedContact.id).messages
@@ -12,7 +14,6 @@ const Chat = ({ selectedContact }) => {
 
   const [input, setInput] = useState("");
   const [shouldMakeApiCall, setShouldMakeApiCall] = useState(false);
-  const [isLoading, setIsLoading] = useState(false); // new state variable for loading message
 
   const handleChange = (event) => {
     setInput(event.target.value);
@@ -39,18 +40,12 @@ const Chat = ({ selectedContact }) => {
 
   useEffect(() => {
     const makeApiCall = async () => {
-      // Check if the last message in `messages` was added by the user
       if (messages[messages.length - 1].role !== "user") {
         return;
       }
-
-      // Set loading flag to true
-      setIsLoading(true);
-
-      // Make API request to ChatGPT
-      const response = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
+    
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -61,34 +56,58 @@ const Chat = ({ selectedContact }) => {
             messages,
             max_tokens: 2048,
             temperature: 0.5,
+            stream: true,
           }),
+        });
+    
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+    
+        let assistantMessageContent = "";
+    
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+    
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+          const parsedLines = lines
+            .map((line) => line.replace(/^data: /, "").trim())
+            .filter((line) => line !== "" && line !== "[DONE]")
+            .map((line) => JSON.parse(line));
+    
+          for (const parsedLine of parsedLines) {
+            const { choices } = parsedLine;
+            const { delta } = choices[0];
+            const { content } = delta;
+            if (content) {
+              assistantMessageContent += content;
+              console.log("Received content:", content);
+              setAssistantPartialMessage(assistantMessageContent); // Update the partial message in the state
+            }
+          }
         }
-      );
+    
+        const assistantMessage = {
+          role: "assistant",
+          content: assistantMessageContent.trim(),
+        };
+    
+        dispatch(
+          addMessage({ contactId: selectedContact.id, message: assistantMessage })
+        );
+        setAssistantPartialMessage(""); // Reset the partial message in the state
+    
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    };    
 
-      const json = await response.json();
-      console.log(json);
-
-      // Create assistant message object
-      const assistantMessage = {
-        role: "assistant",
-        content: json.choices[0].message.content.trim(),
-      };
-
-      // Dispatch action to add assistant message to selected contact messages
-      dispatch(
-        addMessage({ contactId: selectedContact.id, message: assistantMessage })
-      );
-
-      // Reset flag to false
-      setShouldMakeApiCall(false);
-
-      // Set loading flag to false
-      setIsLoading(false);
-    };
-
-    // Only make the API call if there are messages to send and flag is true
     if (messages && messages.length > 0 && shouldMakeApiCall) {
       makeApiCall();
+      setShouldMakeApiCall(false);
     }
   }, [messages, shouldMakeApiCall, dispatch, selectedContact.id]);
 
@@ -123,14 +142,19 @@ const Chat = ({ selectedContact }) => {
             })}
           </p>
         ))}
-        {isLoading && (
-          <div className="flex-row message assistant loading-message">
-            <div className="message-bubble">
-              <p>Hold on, I'm thinking...</p>
-              <div className="loader"></div>
-            </div>
-          </div>
+        {assistantPartialMessage && (
+          <p className="message assistant">
+            {assistantPartialMessage.split("\n").map((line, index) => {
+              return (
+                <React.Fragment key={index}>
+                  {line}
+                  <br />
+                </React.Fragment>
+              );
+            })}
+          </p>
         )}
+
         <div ref={messagesEndRef} />
       </div>
       <div className="flex-column input-container">
